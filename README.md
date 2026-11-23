@@ -101,10 +101,13 @@ services:
       - API_KEY=${API_KEY:-}
     volumes:
       - ./config.json:/app/config.json:ro
-      - /path/to/jobs_m115:/printing_daemon/jobs_m115
-      - /path/to/jobs_printer2:/printing_daemon/jobs_printer2
+      # Mount one parent folder containing all per-printer watch_dir subfolders
+      # (matching the watch_dir paths configured in config.json)
+      - /path/to/print_jobs:/printing_daemon
     restart: unless-stopped
 ```
+
+> **Tip:** Mounting a single parent folder (e.g. `/path/to/print_jobs:/printing_daemon`) lets you add or remove printers in `config.json` (such as `../printing_daemon/printer_a`, `../printing_daemon/printer_b`) without having to add a new volume line to `docker-compose.yml` for every printer.
 
 Then start it:
 ```bash
