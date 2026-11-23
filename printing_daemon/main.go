@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -413,6 +414,13 @@ func (d *daemon) scanExistingFiles() {
 	}
 }
 
+func fatalWithPause(format string, args ...any) {
+	log.Printf(format, args...)
+	fmt.Println("\nNhấn Enter để thoát...")
+	_, _ = bufio.NewReader(os.Stdin).ReadBytes('\n')
+	os.Exit(1)
+}
+
 func main() {
 	baseDir := getBaseDir()
 	defaultConfigPath := filepath.Join(baseDir, "config.json")
@@ -421,10 +429,10 @@ func main() {
 
 	cfg, err := loadConfig(*configFlag)
 	if err != nil {
-		log.Fatalf("❌ Lỗi cấu hình: %v", err)
+		fatalWithPause("❌ Lỗi cấu hình: %v", err)
 	}
 	if err := validateTargetPrinters(cfg.Routes); err != nil {
-		log.Fatalf("❌ Lỗi máy in: %v", err)
+		fatalWithPause("❌ Lỗi máy in: %v", err)
 	}
 
 	logDir := resolvePath(baseDir, cfg.LogDir)
@@ -445,7 +453,7 @@ func main() {
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Fatalf("❌ Lỗi khởi tạo File Watcher: %v", err)
+		fatalWithPause("❌ Lỗi khởi tạo File Watcher: %v", err)
 	}
 	defer watcher.Close()
 
@@ -462,12 +470,12 @@ func main() {
 	for _, r := range cfg.Routes {
 		resolvedDir := resolvePath(baseDir, r.WatchDir)
 		if err := os.MkdirAll(resolvedDir, 0755); err != nil {
-			log.Fatalf("❌ Không thể tạo thư mục '%s': %v", resolvedDir, err)
+			fatalWithPause("❌ Không thể tạo thư mục '%s': %v", resolvedDir, err)
 		}
 
 		dirKey := normalizeKey(resolvedDir)
 		if _, dup := d.routesByDir[dirKey]; dup {
-			log.Fatalf("❌ Thư mục '%s' bị cấu hình trùng lặp trong routes", resolvedDir)
+			fatalWithPause("❌ Thư mục '%s' bị cấu hình trùng lặp trong routes", resolvedDir)
 		}
 
 		r.WatchDir = resolvedDir
@@ -481,7 +489,7 @@ func main() {
 		}
 
 		if err := watcher.Add(resolvedDir); err != nil {
-			log.Fatalf("❌ Không thể theo dõi thư mục '%s': %v", resolvedDir, err)
+			fatalWithPause("❌ Không thể theo dõi thư mục '%s': %v", resolvedDir, err)
 		}
 
 		log.Printf("📂 [%s] %s  ==>  🖨️ %s", r.displayName(), resolvedDir, r.TargetPrinter)
