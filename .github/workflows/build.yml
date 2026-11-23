@@ -126,8 +126,12 @@ jobs:
 
       - name: Build release APK (arm64)
         run: |
+          BUILD_NAME="1.0.0"
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            BUILD_NAME="${GITHUB_REF_NAME#v}"
+          fi
           flutter build apk --release --target-platform android-arm64 \
-            --build-name=1.0.0 \
+            --build-name="$BUILD_NAME" \
             --build-number=${{ github.run_number }} \
             --dart-define=PRINT_API_URL="${{ vars.PRINT_API_URL }}" \
             --dart-define=PRINT_API_KEY="${{ secrets.PRINT_API_KEY }}"
