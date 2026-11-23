@@ -1,0 +1,144 @@
+name: Build & Release PrintBridge
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-daemon:
+    name: Build Windows Daemon
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: printing_daemon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: printing_daemon/go.sum
+
+      - name: Vet Windows daemon
+        run: GOOS=windows GOARCH=amd64 go vet ./...
+
+      - name: Cross-compile printer_agent.exe
+        run: |
+          mkdir -p dist
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/printer_agent.exe main.go
+          cp config.json build.bat dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: printing-daemon-windows
+          path: printing_daemon/dist/*
+
+  build-api:
+    name: Build & Push Print API Image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Vet print_api
+        working-directory: print_api
+        run: go vet ./...
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/printbridge-api
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=sha
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./print_api
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-app:
+    name: Build Android APK (arm64)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: print_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies & run checks
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+      - name: Build release APK (arm64)
+        run: |
+          flutter build apk --release --target-platform android-arm64 \
+            --dart-define=PRINT_API_URL="${{ vars.PRINT_API_URL }}" \
+            --dart-define=PRINT_API_KEY="${{ secrets.PRINT_API_KEY }}"
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/PrintBridge-arm64.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: printbridge-android-arm64
+          path: print_app/build/app/outputs/flutter-apk/PrintBridge-arm64.apk
+
+  release:
+    name: Create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-daemon, build-api, build-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/printbridge-android-arm64/PrintBridge-arm64.apk
+            artifacts/printing-daemon-windows/printer_agent.exe
+          generate_release_notes: true

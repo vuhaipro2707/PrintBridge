@@ -2,7 +2,6 @@
   "listen_addr": ":8080",
   "api_key": "",
   "max_upload_mb": 50,
-  "apk_path": "./downloads/PrintBridge.apk",
   "routes": [
     {
       "id": "m115",

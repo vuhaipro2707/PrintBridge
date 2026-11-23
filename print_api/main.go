@@ -31,7 +31,6 @@ type Config struct {
 	ListenAddr  string        `json:"listen_addr"`
 	APIKey      string        `json:"api_key"`
 	MaxUploadMB int64         `json:"max_upload_mb"`
-	APKPath     string        `json:"apk_path"`
 	Routes      []RouteConfig `json:"routes"`
 }
 
@@ -46,7 +45,6 @@ type server struct {
 	routesOrder []RouteConfig
 	apiKey      string
 	maxBytes    int64
-	apkPath     string
 	seq         atomic.Uint64
 	convertMu   sync.Mutex
 }
@@ -74,12 +72,6 @@ func loadConfig(path string) (*Config, error) {
 	if cfg.MaxUploadMB <= 0 {
 		cfg.MaxUploadMB = 50
 	}
-	if strings.TrimSpace(cfg.APKPath) == "" {
-		cfg.APKPath = "./downloads/PrintBridge.apk"
-	}
-	if envAPK := strings.TrimSpace(os.Getenv("APK_PATH")); envAPK != "" {
-		cfg.APKPath = envAPK
-	}
 	if len(cfg.Routes) == 0 {
 		return nil, errors.New("cấu hình chưa có route nào trong 'routes'")
 	}
@@ -87,16 +79,10 @@ func loadConfig(path string) (*Config, error) {
 }
 
 func newServer(cfg *Config, baseDir string) (*server, error) {
-	apkPath := strings.TrimSpace(cfg.APKPath)
-	if apkPath != "" && !filepath.IsAbs(apkPath) {
-		apkPath = filepath.Clean(filepath.Join(baseDir, apkPath))
-	}
-
 	s := &server{
 		routesByKey: make(map[string]RouteConfig),
 		apiKey:      strings.TrimSpace(cfg.APIKey),
 		maxBytes:    cfg.MaxUploadMB * 1024 * 1024,
-		apkPath:     apkPath,
 	}
 
 	for i, r := range cfg.Routes {
@@ -150,9 +136,8 @@ func (s *server) withMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// /health và /download/app.apk mở công khai để check sống chết và tải app từ trình duyệt điện thoại
-		isPublic := r.URL.Path == "/health" || r.URL.Path == "/download/app.apk"
-		if !isPublic && s.apiKey != "" {
+		// /health luôn mở để Docker/load balancer check sống chết
+		if r.URL.Path != "/health" && s.apiKey != "" {
 			provided := strings.TrimSpace(r.Header.Get("X-API-Key"))
 			if provided == "" {
 				auth := strings.TrimSpace(r.Header.Get("Authorization"))
@@ -187,33 +172,11 @@ func countPendingPDFs(dir string) int {
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	_, apkErr := os.Stat(s.apkPath)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":        "ok",
-		"auth_enabled":  s.apiKey != "",
-		"routes_count":  len(s.routesOrder),
-		"apk_available": apkErr == nil,
+		"status":       "ok",
+		"auth_enabled": s.apiKey != "",
+		"routes_count": len(s.routesOrder),
 	})
-}
-
-func (s *server) handleDownloadAPK(w http.ResponseWriter, r *http.Request) {
-	if s.apkPath == "" {
-		writeJSON(w, http.StatusNotFound, map[string]string{
-			"error": "Chưa cấu hình đường dẫn file APK",
-		})
-		return
-	}
-	fi, err := os.Stat(s.apkPath)
-	if err != nil || fi.IsDir() {
-		writeJSON(w, http.StatusNotFound, map[string]string{
-			"error": "Chưa có file PrintBridge.apk trên server",
-		})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/vnd.android.package-archive")
-	w.Header().Set("Content-Disposition", `attachment; filename="PrintBridge.apk"`)
-	http.ServeFile(w, r, s.apkPath)
 }
 
 func (s *server) handleRoutes(w http.ResponseWriter, r *http.Request) {
@@ -522,7 +485,6 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", srv.handleHealth)
-	mux.HandleFunc("GET /download/app.apk", srv.handleDownloadAPK)
 	mux.HandleFunc("GET /api/routes", srv.handleRoutes)
 	mux.HandleFunc("POST /api/convert", srv.handleConvert)
 	mux.HandleFunc("POST /api/print", srv.handlePrint)

@@ -11,4 +11,3 @@
 # Runtime folders & artifacts
 logs/
 printing_daemon/jobs_*/
-print_api/downloads/*.apk

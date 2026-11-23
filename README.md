@@ -52,42 +52,69 @@ flowchart LR
 
 ```text
 PrintBridge/
-├── print_app/          # Flutter Android & Web client (PrintBridge)
-├── print_api/          # Go net/http API + Docker + LibreOffice headless
-└── printing_daemon/    # Go Windows multi-folder print daemon
+├── .github/workflows/build.yml   # GitHub Actions CI/CD for all 3 components
+├── print_app/                    # Flutter Android & Web client (PrintBridge)
+├── print_api/                    # Go net/http API + Docker + LibreOffice headless
+└── printing_daemon/              # Go Windows multi-folder print daemon
 ```
 
 ---
 
-## Configuration & Build Guide
+## Automated Builds (GitHub Actions)
+
+Every push to `main` (or manual `workflow_dispatch`) runs [.github/workflows/build.yml](.github/workflows/build.yml) to build all 3 components:
+1. **`printing-daemon-windows` artifact:** `printer_agent.exe`, `config.json`, `build.bat`.
+2. **`print_api` Docker image:** multi-arch (`linux/amd64`, `linux/arm64`) pushed to `ghcr.io/vuhaipro2707/printbridge-api:latest`.
+3. **`printbridge-android-arm64` artifact:** `PrintBridge-arm64.apk`.
+   - *(Optional)* Set `PRINT_API_URL` as a GitHub Repository Variable and `PRINT_API_KEY` as a Repository Secret to bake defaults into CI-built APKs (you can also configure them anytime inside the app).
+4. **GitHub Releases:** Pushing a tag such as `git tag v1.0.0 && git push origin v1.0.0` automatically creates a GitHub Release with `PrintBridge-arm64.apk` and `printer_agent.exe` attached.
+
+---
+
+## Deployment & Manual Build Guide
 
 ### 1. `printing_daemon` (Windows PC with Printers Attached)
-1. Edit `printing_daemon/config.json` to map each `watch_dir` to its `target_printer` name in Windows:
-   - `delete_after_print`: defaults to `true`.
-2. Place `PDFtoPrinter.exe` alongside the executable (or set `pdf_to_printer_path` in `config.json`; PowerShell `Start-Process -Verb PrintTo` is used as fallback).
-3. **Build on Windows:** run `build.bat` to produce `printer_agent.exe`.
-   - Or **cross-compile from macOS/Linux:**
+1. Download `printer_agent.exe` from GitHub Actions/Releases, or build it yourself:
+   - On Windows: run `printing_daemon/build.bat`.
+   - Cross-compile from macOS/Linux:
      ```bash
      cd printing_daemon
      GOOS=windows GOARCH=amd64 go build -o printer_agent.exe main.go
      ```
+2. Edit `printing_daemon/config.json` to map each `watch_dir` to its `target_printer` name in Windows (`delete_after_print` defaults to `true`).
+3. Place `PDFtoPrinter.exe` alongside `printer_agent.exe` (or set `pdf_to_printer_path` in `config.json`; PowerShell `Start-Process -Verb PrintTo` is used as fallback).
 
 ### 2. `print_api` (Docker / Homelab)
-1. Configure `print_api/config.json` with your `routes` (`id`, `name`, `watch_dir`) matching the folders watched by `printing_daemon`.
-2. Update `print_api/docker-compose.yml`:
-   - Adjust the `volumes` paths if `print_api` runs on a Linux homelab and writes to a Windows SMB share (e.g., `/mnt/win_share/jobs_m115:/printing_daemon/jobs_m115`).
-   - *(Optional)* Create a `.env` file next to `docker-compose.yml` with `API_KEY=your_secret` to require `X-API-Key` (or `Authorization: Bearer`) on API calls.
-3. **Build & start the container:**
-   ```bash
-   cd print_api
-   docker compose up -d --build
-   ```
+Create a `docker-compose.yml` on your server alongside your `config.json`:
+
+```yaml
+services:
+  print_api:
+    image: ghcr.io/vuhaipro2707/printbridge-api:latest
+    # Or build locally from ./print_api:
+    # build: ./print_api
+    container_name: print_api
+    ports:
+      - "8080:8080"
+    environment:
+      - LISTEN_ADDR=:8080
+      - API_KEY=${API_KEY:-}
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - /path/to/jobs_m115:/printing_daemon/jobs_m115
+      - /path/to/jobs_printer2:/printing_daemon/jobs_printer2
+    restart: unless-stopped
+```
+
+Then start it:
+```bash
+docker compose up -d
+```
 
 #### `print_api` Endpoints
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `GET` | `/health` | Health status, auth mode, and `apk_available` flag (public) |
-| `GET` | `/download/app.apk` | Serves `PrintBridge.apk` from `print_api/downloads/` (public) |
+| `GET` | `/health` | Health status and auth mode (public) |
 | `GET` | `/api/routes` | Lists configured printers/routes and current `pending_count` |
 | `POST` | `/api/convert` | Converts `.doc`, `.docx`, `.xls`, `.xlsx` to PDF via LibreOffice |
 | `POST` | `/api/print` | Accepts `route` + `file` (`.pdf` or Office) and queues it for printing |
@@ -109,10 +136,8 @@ PrintBridge/
    # Chrome (Web)
    flutter run -d chrome --dart-define=PRINT_API_URL=http://localhost:8080
    ```
-3. **Build 64-bit (`arm64`) Release APK & host it via `print_api`:**
+3. **Build 64-bit (`arm64`) Release APK locally:**
    ```bash
    cd print_app
    flutter build apk --release --target-platform android-arm64 --dart-define-from-file=.env
-   cp build/app/outputs/flutter-apk/app-release.apk ../print_api/downloads/PrintBridge.apk
    ```
-   Then open `http://<SERVER_IP>:8080/download/app.apk` on your phone's browser to download and install **PrintBridge**.
