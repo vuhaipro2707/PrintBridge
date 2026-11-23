@@ -51,9 +51,38 @@ type server struct {
 
 var unsafeNameChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 
+func writeSampleConfig(path string) error {
+	sample := Config{
+		ListenAddr:  ":8080",
+		APIKey:      "",
+		MaxUploadMB: 50,
+		Routes: []RouteConfig{
+			{
+				ID:       "printer1",
+				Name:     "Printer 1",
+				WatchDir: "/printing_daemon/jobs_printer1",
+			},
+		},
+	}
+	data, err := json.MarshalIndent(sample, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0644)
+}
+
 func loadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if writeErr := writeSampleConfig(path); writeErr != nil {
+				return nil, fmt.Errorf("không tìm thấy %s và không thể tạo file mẫu: %w", path, writeErr)
+			}
+			return nil, fmt.Errorf("đã tạo file cấu hình mẫu tại %s. Vui lòng kiểm tra/chỉnh sửa routes rồi khởi động lại", path)
+		}
 		return nil, fmt.Errorf("không đọc được %s: %w", path, err)
 	}
 	var cfg Config
@@ -85,6 +114,7 @@ func newServer(cfg *Config, baseDir string) (*server, error) {
 		maxBytes:    cfg.MaxUploadMB * 1024 * 1024,
 	}
 
+	seenDirs := make(map[string]struct{}, len(cfg.Routes))
 	for i, r := range cfg.Routes {
 		id := strings.TrimSpace(r.ID)
 		name := strings.TrimSpace(r.Name)
@@ -102,6 +132,12 @@ func newServer(cfg *Config, baseDir string) (*server, error) {
 		if !filepath.IsAbs(watchDir) {
 			watchDir = filepath.Clean(filepath.Join(baseDir, watchDir))
 		}
+		dirKey := strings.ToLower(filepath.Clean(watchDir))
+		if _, dup := seenDirs[dirKey]; dup {
+			return nil, fmt.Errorf("watch_dir '%s' bị cấu hình trùng lặp", watchDir)
+		}
+		seenDirs[dirKey] = struct{}{}
+
 		if err := os.MkdirAll(watchDir, 0755); err != nil {
 			return nil, fmt.Errorf("không tạo được thư mục '%s': %w", watchDir, err)
 		}

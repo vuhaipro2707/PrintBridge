@@ -17,7 +17,6 @@ RUN apk add --no-cache \
     ttf-liberation
 
 COPY --from=builder /print_api /app/print_api
-COPY config.json /app/config.json
 
 EXPOSE 8080
-ENTRYPOINT ["/app/print_api", "-config", "/app/config.json"]
+ENTRYPOINT ["/app/print_api", "-config", "/app/config/config.json"]

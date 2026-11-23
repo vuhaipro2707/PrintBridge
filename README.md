@@ -81,11 +81,12 @@ Every push to `main` (or manual `workflow_dispatch`) runs [.github/workflows/bui
      cd printing_daemon
      GOOS=windows GOARCH=amd64 go build -o printer_agent.exe main.go
      ```
-2. Edit `printing_daemon/config.json` to map each `watch_dir` to its `target_printer` name in Windows (`delete_after_print` defaults to `true`).
+2. On first run without `config.json`, `printer_agent.exe` **auto-generates a sample `config.json`**, prints the list of **installed Windows printer names**, and exits so you can copy the exact `target_printer` name into `config.json`.
+   - On every startup, it validates that every `target_printer` actually exists on Windows (`delete_after_print` defaults to `true`).
 3. Place `PDFtoPrinter.exe` alongside `printer_agent.exe` (or set `pdf_to_printer_path` in `config.json`; PowerShell `Start-Process -Verb PrintTo` is used as fallback).
 
 ### 2. `print_api` (Docker / Homelab)
-Create a `docker-compose.yml` on your server alongside your `config.json`:
+Create a `docker-compose.yml` on your server:
 
 ```yaml
 services:
@@ -100,19 +101,17 @@ services:
       - LISTEN_ADDR=:8080
       - API_KEY=${API_KEY:-}
     volumes:
-      - ./config.json:/app/config.json:ro
+      # Mount a config folder; if config.json does not exist yet,
+      # print_api will auto-generate a sample config.json on first run.
+      - ./config:/app/config
       # Mount one parent folder containing all per-printer watch_dir subfolders
-      # (matching the watch_dir paths configured in config.json)
       - /path/to/print_jobs:/printing_daemon
     restart: unless-stopped
 ```
 
-> **Tip:** Mounting a single parent folder (e.g. `/path/to/print_jobs:/printing_daemon`) lets you add or remove printers in `config.json` (such as `../printing_daemon/printer_a`, `../printing_daemon/printer_b`) without having to add a new volume line to `docker-compose.yml` for every printer.
+Start it once (`docker compose up -d`). If `./config/config.json` didn't exist yet, `print_api` creates a sample one and exits — edit `./config/config.json` to match your routes, then run `docker compose up -d` again.
 
-Then start it:
-```bash
-docker compose up -d
-```
+> **Tip:** Mounting a single parent folder (e.g. `/path/to/print_jobs:/printing_daemon`) lets you add or remove printers in `config.json` (such as `/printing_daemon/printer_a`, `/printing_daemon/printer_b`) without having to add a new volume line to `docker-compose.yml` for every printer.
 
 #### `print_api` Endpoints
 | Method | Endpoint | Description |

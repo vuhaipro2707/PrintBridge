@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -89,9 +90,83 @@ func normalizeKey(p string) string {
 	return strings.ToLower(filepath.Clean(p))
 }
 
+func writeSampleConfig(configPath string) error {
+	del := true
+	sample := Config{
+		LogDir:  "logs",
+		LogFile: "agent_log.txt",
+		Routes: []RouteConfig{
+			{
+				Name:             "Printer 1",
+				WatchDir:         "jobs_printer1",
+				TargetPrinter:    "REPLACE_WITH_WINDOWS_PRINTER_NAME",
+				DeleteAfterPrint: &del,
+			},
+		},
+	}
+	data, err := json.MarshalIndent(sample, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(configPath, append(data, '\n'), 0644)
+}
+
+func logInstalledPrinters() {
+	names, err := printer.ReadNames()
+	if err != nil {
+		log.Printf("⚠️ Không đọc được danh sách máy in Windows: %v", err)
+		return
+	}
+	if len(names) == 0 {
+		log.Println("⚠️ Không tìm thấy máy in nào được cài trên Windows.")
+		return
+	}
+	log.Println("🖨️ Danh sách máy in đang có trên Windows:")
+	for _, n := range names {
+		log.Printf("   - %s", n)
+	}
+}
+
+func validateTargetPrinters(routes []RouteConfig) error {
+	names, err := printer.ReadNames()
+	if err != nil {
+		log.Printf("⚠️ Không thể kiểm tra danh sách máy in Windows (%v), bỏ qua bước kiểm tra tên.", err)
+		return nil
+	}
+
+	installed := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		installed[strings.ToLower(strings.TrimSpace(n))] = struct{}{}
+	}
+
+	var missing []string
+	for _, r := range routes {
+		key := strings.ToLower(strings.TrimSpace(r.TargetPrinter))
+		if _, ok := installed[key]; !ok {
+			missing = append(missing, fmt.Sprintf("route '%s' -> '%s'", r.displayName(), r.TargetPrinter))
+		}
+	}
+
+	if len(missing) > 0 {
+		logInstalledPrinters()
+		return fmt.Errorf("không tìm thấy máy in trên Windows cho: %s", strings.Join(missing, "; "))
+	}
+	return nil
+}
+
 func loadConfig(configPath string) (*Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if writeErr := writeSampleConfig(configPath); writeErr != nil {
+				return nil, fmt.Errorf("không tìm thấy %s và không thể tạo file mẫu: %w", configPath, writeErr)
+			}
+			logInstalledPrinters()
+			return nil, fmt.Errorf("đã tạo file cấu hình mẫu tại %s. Vui lòng điền đúng 'watch_dir' và 'target_printer' rồi chạy lại", configPath)
+		}
 		return nil, fmt.Errorf("không đọc được file cấu hình %s: %w", configPath, err)
 	}
 
@@ -347,6 +422,9 @@ func main() {
 	cfg, err := loadConfig(*configFlag)
 	if err != nil {
 		log.Fatalf("❌ Lỗi cấu hình: %v", err)
+	}
+	if err := validateTargetPrinters(cfg.Routes); err != nil {
+		log.Fatalf("❌ Lỗi máy in: %v", err)
 	}
 
 	logDir := resolvePath(baseDir, cfg.LogDir)
