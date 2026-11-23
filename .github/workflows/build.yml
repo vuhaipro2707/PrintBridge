@@ -105,6 +105,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: "3.41.5"
           channel: stable
           cache: true
 
@@ -126,7 +127,6 @@ jobs:
       - name: Build release APK (arm64)
         run: |
           flutter build apk --release --target-platform android-arm64 \
-            --android-skip-build-dependency-validation \
             --build-name=1.0.0 \
             --build-number=${{ github.run_number }} \
             --dart-define=PRINT_API_URL="${{ vars.PRINT_API_URL }}" \
