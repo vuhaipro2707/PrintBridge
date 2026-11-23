@@ -101,11 +101,21 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: "gradle"
 
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+
+      - name: Cache Flutter Pub Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('print_app/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
 
       - name: Install dependencies & run checks
         run: |
@@ -116,6 +126,8 @@ jobs:
       - name: Build release APK (arm64)
         run: |
           flutter build apk --release --target-platform android-arm64 \
+            --build-name=1.0.0 \
+            --build-number=${{ github.run_number }} \
             --dart-define=PRINT_API_URL="${{ vars.PRINT_API_URL }}" \
             --dart-define=PRINT_API_KEY="${{ secrets.PRINT_API_KEY }}"
           cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/PrintBridge-arm64.apk
@@ -124,6 +136,7 @@ jobs:
         with:
           name: printbridge-android-arm64
           path: print_app/build/app/outputs/flutter-apk/PrintBridge-arm64.apk
+          if-no-files-found: error
 
   release:
     name: Create GitHub Release
