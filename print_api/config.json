@@ -1,0 +1,18 @@
+{
+  "listen_addr": ":8080",
+  "api_key": "",
+  "max_upload_mb": 50,
+  "apk_path": "./downloads/PrintBridge.apk",
+  "routes": [
+    {
+      "id": "m115",
+      "name": "DocuPrint M115 w",
+      "watch_dir": "../printing_daemon/jobs_m115"
+    },
+    {
+      "id": "printer2",
+      "name": "May in hoa don 2",
+      "watch_dir": "../printing_daemon/jobs_printer2"
+    }
+  ]
+}

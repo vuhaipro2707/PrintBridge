@@ -1,0 +1,14 @@
+.DS_Store
+*.exe
+*.tmp
+*.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Runtime folders & artifacts
+logs/
+printing_daemon/jobs_*/
+print_api/downloads/*.apk

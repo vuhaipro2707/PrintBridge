@@ -1,0 +1,19 @@
+{
+  "log_dir": "logs",
+  "log_file": "agent_log.txt",
+  "pdf_to_printer_path": "",
+  "routes": [
+    {
+      "name": "DocuPrint M115 w",
+      "watch_dir": "jobs_m115",
+      "target_printer": "FF Q504h for DocuPrint M115 w",
+      "delete_after_print": true
+    },
+    {
+      "name": "May in hoa don 2",
+      "watch_dir": "jobs_printer2",
+      "target_printer": "Ten May In Thu 2",
+      "delete_after_print": true
+    }
+  ]
+}

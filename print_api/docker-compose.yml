@@ -1,0 +1,17 @@
+services:
+  print_api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: print_api
+    ports:
+      - "8080:8080"
+    environment:
+      - LISTEN_ADDR=:8080
+      - API_KEY=${API_KEY:-}
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./downloads:/app/downloads:ro
+      - ../printing_daemon/jobs_m115:/printing_daemon/jobs_m115
+      - ../printing_daemon/jobs_printer2:/printing_daemon/jobs_printer2
+    restart: unless-stopped
